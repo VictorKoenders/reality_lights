@@ -61,19 +61,28 @@ impl AnimationHandler {
         let mut animation = Animation::default();
         animation.name = name.to_owned();
 
+        let mut frames = Vec::new();
+
         for (name, read) in map {
             let mut path = name.rsplitn(2, '.');
 
             let (extension, name) = (unwrap_none!(path.next()), unwrap_none!(path.next()));
             if extension == "bmp" {
                 let index = name.parse::<usize>()?;
-                while animation.frames.len() <= index {
-                    animation.frames.push(Default::default());
+                while frames.len() <= index {
+                    frames.push(None);
                 }
-                animation.frames[index] = AnimationHandler::parse_bmp(read)?;
+                frames[index] = Some(AnimationHandler::parse_bmp(read)?);
             } else if extension == "fps" {
                 AnimationHandler::load_config(read, &mut animation)?;
             }
+        }
+        animation.frames.reserve_exact(frames.len());
+        for (index, frame) in frames.into_iter().enumerate() {
+            animation.frames.push(match frame {
+                Some(f) => f,
+                None => bail!("Missing frame {}", index),
+            });
         }
         self.animations.insert(name.to_owned(), animation);
         Ok(())
@@ -99,6 +108,9 @@ impl AnimationHandler {
                         let r = (u16::from(slice[0]) * 100 / 255) as u8;
                         let g = (u16::from(slice[1]) * 100 / 255) as u8;
                         let b = (u16::from(slice[2]) * 100 / 255) as u8;
+                        assert!(r <= 100);
+                        assert!(g <= 100);
+                        assert!(b <= 100);
                         row[index] = (r, g, b);
                     }
                     result[index] = row;

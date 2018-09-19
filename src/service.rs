@@ -219,6 +219,14 @@ impl Handler<SetNodeAnimation> for Service {
         animation: SetNodeAnimation,
         _context: &mut Self::Context,
     ) -> Self::Result {
+        if self
+            .animations
+            .animations
+            .get(&animation.animation_name)
+            .is_none()
+        {
+            bail!("Animation not found");
+        }
         for client in self.clients.values_mut() {
             if client.addr_string == animation.ip {
                 client.current_animation = animation.animation_name;
@@ -226,6 +234,6 @@ impl Handler<SetNodeAnimation> for Service {
                 return Ok(());
             }
         }
-        bail!("Client not found")
+        bail!("Torch with ip {} not found", animation.ip)
     }
 }

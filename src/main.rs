@@ -1,4 +1,3 @@
-#![recursion_limit = "64"]
 extern crate actix;
 extern crate actix_web;
 extern crate artnet_protocol;
