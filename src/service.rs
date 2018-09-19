@@ -14,12 +14,15 @@ use messages::{
     SendMessage, SetNodeAnimation,
 };
 use std::collections::HashMap;
-use std::mem;
+use std::fs::File;
+use std::io::{Cursor, Read as IoRead, Write as IoWrite};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket as NetSocket};
 use std::time::Duration;
+use std::{fs, mem};
 use time;
 use tokio_reactor::Handle;
 use tokio_udp::{UdpFramed, UdpSocket};
+use zip::ZipArchive;
 use Result;
 
 pub struct Service {
@@ -94,7 +97,7 @@ impl Service {
 
         self.tick(ctx);
         ctx.run_interval(Duration::from_secs(1), Self::tick);
-        ctx.run_interval(Duration::from_millis(100), Self::render);
+        ctx.run_interval(Duration::from_millis(10), Self::render);
 
         Ok(())
     }
@@ -110,12 +113,14 @@ impl Service {
 
     fn render(&mut self, _: &mut Context<Self>) {
         for (addr, client) in &mut self.clients {
-            if let Some(animation) = self
-                .animations
-                .animations
-                .iter()
-                .find(|a| a.name == client.current_animation)
-            {
+            if let Some(animation) = self.animations.animations.get(&client.current_animation) {
+                client.millis_since_last_frame += 10;
+                let millis_per_frame = 1000 / usize::from(animation.fps);
+                if client.millis_since_last_frame >= millis_per_frame {
+                    client.millis_since_last_frame -= millis_per_frame;
+                } else {
+                    continue;
+                }
                 let frame = animation.frames[client.current_animation_frame];
 
                 let bytes: [u8; 7 * 3 * 22] = unsafe { mem::transmute(frame) };
@@ -151,7 +156,29 @@ impl Handler<SendMessage> for Service {
 impl Handler<AddAnimation> for Service {
     type Result = <AddAnimation as Message>::Result;
 
-    fn handle(&mut self, _animation: AddAnimation, _context: &mut Self::Context) -> Self::Result {}
+    fn handle(&mut self, animation: AddAnimation, _context: &mut Self::Context) -> Self::Result {
+        let name = animation.name;
+        println!("Loading {:?} ({} bytes)", name, animation.bytes.len());
+        let mut zip = ZipArchive::new(Cursor::new(animation.bytes))?;
+        let mut map = HashMap::new();
+        for i in 0..zip.len() {
+            let mut file = zip.by_index(i)?;
+            let mut buffer = Vec::new();
+            file.read_to_end(&mut buffer)?;
+            map.insert(file.name().to_owned(), buffer);
+        }
+
+        self.animations.load(&name, &map)?;
+
+        let _ = fs::create_dir(&format!("animations/{}", name));
+        for (file_name, contents) in map {
+            let file_name = format!("animations/{}/{}", name, file_name);
+            let mut file = File::create(&file_name)?;
+            file.write_all(&contents)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Handler<RequestAnimationList> for Service {
@@ -163,7 +190,7 @@ impl Handler<RequestAnimationList> for Service {
         _context: &mut Self::Context,
     ) -> Self::Result {
         let result = ResponseAnimationList {
-            animations: self.animations.animations.clone(),
+            animations: self.animations.animations.values().cloned().collect(),
         };
         Ok(result)
     }

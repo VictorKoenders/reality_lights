@@ -28,7 +28,7 @@ impl Encoder for Codec {
         let buffer = match item.into_buffer() {
             Ok(b) => b,
             Err(e) => {
-                panic!("Could not encode ArtCommand {:?}\n{:?}", item, e);
+                panic!("Could not encode ArtCommand: {:?}", e);
             }
         };
         bytes.extend_from_slice(&buffer);

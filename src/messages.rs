@@ -1,6 +1,5 @@
 use actix::Message;
 use artnet_protocol::ArtCommand;
-use bytes::Bytes;
 use std::net::Ipv4Addr;
 use Result;
 
@@ -47,20 +46,30 @@ pub struct ResponseAnimationList {
 
 #[derive(Debug)]
 pub struct AddAnimation {
-    name: String,
-    bytes: Bytes,
+    pub name: String,
+    pub bytes: Vec<u8>,
 }
 
 impl Message for AddAnimation {
-    type Result = ();
+    type Result = Result<()>;
 }
 
-#[derive(Default, Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Animation {
     pub name: String,
     #[serde(skip_serializing)]
     pub frames: Vec<AnimationFrame>,
-    pub fps: u16,
+    pub fps: u8,
+}
+
+impl Default for Animation {
+    fn default() -> Animation {
+        Animation {
+            name: String::new(),
+            frames: Vec::new(),
+            fps: 1,
+        }
+    }
 }
 
 pub type AnimationFrame = [[(u8, u8, u8); 7]; 22];

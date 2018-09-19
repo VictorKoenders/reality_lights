@@ -97,7 +97,8 @@ pub fn handle_multipart_item(
     }
 }
 
-fn handler_add_animation(req: HttpRequest<ServerState>) -> Result<String> {
+fn handler_add_animation(req: &HttpRequest<ServerState>) -> Result<String> {
+    let req = req.clone();
     let animation_name = match Path::<String>::extract(&req) {
         Ok(p) => p.into_inner(),
         Err(e) => {
@@ -115,24 +116,25 @@ fn handler_add_animation(req: HttpRequest<ServerState>) -> Result<String> {
                     None => return None,
                 };
                 for param in disposition.parameters {
-                    if let DispositionParam::Filename(name) = param {
+                    if let DispositionParam::Filename(_name) = param {
                         return Some(bytes);
                     }
                 }
                 None
             }).collect()
             .and_then(move |file| {
-                if let Some(file) = file.into_iter().next() {
-                    req.state()
-                        .add_animation
-                        .send(AddAnimation {
-                            name: animation_name,
-                            bytes: file,
-                        }).map(|_| Ok(String::from("ok")))
-                        .map_err(Error::from)
-                } else {
-                    panic!()
-                }
+                let file = file
+                    .iter()
+                    .flat_map(|b| b.as_ref())
+                    .cloned()
+                    .collect::<Vec<u8>>();
+                req.state()
+                    .add_animation
+                    .send(AddAnimation {
+                        name: animation_name,
+                        bytes: file,
+                    }).map(|e| e.map(|_| String::from("ok")))
+                    .map_err(Error::from)
             }).map_err(|e| {
                 println!("failed: {}", e);
                 e

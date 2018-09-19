@@ -11,6 +11,7 @@ pub struct Client {
     pub short_name: String,
     pub long_name: String,
     pub current_animation: String,
+    pub millis_since_last_frame: usize,
     pub current_animation_frame: usize,
 }
 
@@ -38,6 +39,7 @@ impl Client {
                 .to_owned(),
             last_reply_received: 0.,
             current_animation: String::from("green"),
+            millis_since_last_frame: 0,
             current_animation_frame: 0,
         }
     }

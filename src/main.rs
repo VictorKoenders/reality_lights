@@ -1,3 +1,4 @@
+#![recursion_limit = "64"]
 extern crate actix;
 extern crate actix_web;
 extern crate artnet_protocol;
@@ -17,6 +18,7 @@ extern crate serde_derive;
 extern crate image;
 extern crate serde_json;
 extern crate time;
+extern crate zip;
 
 pub type Result<T> = std::result::Result<T, failure::Error>;
 
