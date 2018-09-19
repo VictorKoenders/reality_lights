@@ -1,8 +1,9 @@
 use image::bmp::BMPDecoder;
 use image::{DecodingResult, ImageDecoder};
 use messages::{Animation, AnimationFrame};
+use std::collections::HashMap;
 use std::fs::{self, File};
-use std::path::Path;
+use std::io::{Read, Seek};
 use Result;
 
 pub struct AnimationHandler {
@@ -33,7 +34,17 @@ impl AnimationHandler {
         for file in fs::read_dir("animations")? {
             let file = file?;
             if file.file_type()?.is_dir() {
-                if let Err(e) = handler.load(&file.path()) {
+                let name: String =
+                    unwrap_none!(unwrap_none!(file.path().file_name()).to_str()).to_owned();
+                let mut files: HashMap<String, File> = HashMap::new();
+                for file in fs::read_dir(file.path())? {
+                    let file = file?;
+                    let name: String =
+                        unwrap_none!(unwrap_none!(file.path().file_name()).to_str()).to_owned();
+                    let file = File::open(file.path())?;
+                    files.insert(name, file);
+                }
+                if let Err(e) = handler.load(name, files) {
                     println!("Could not load animation {:?}: {:?}", file.path(), e);
                 }
             }
@@ -42,18 +53,17 @@ impl AnimationHandler {
         Ok(handler)
     }
 
-    pub fn load(&mut self, dir: &Path) -> Result<&Animation> {
-        println!("Loading {:?}", unwrap_none!(dir.file_name()));
+    pub fn load<T: Read + Seek>(
+        &mut self,
+        name: String,
+        map: HashMap<String, T>,
+    ) -> Result<&Animation> {
+        println!("Loading {:?}", name);
         let mut animation = Animation::default();
-        animation.name = unwrap_none!(unwrap_none!(dir.file_name()).to_str()).to_string();
+        animation.name = name;
 
-        for file in fs::read_dir(dir)? {
-            let file = file?;
-
-            let file_path = file.path();
-            let path = unwrap_none!(file_path.file_name());
-            let path = unwrap_none!(path.to_str());
-            let mut path = path.rsplitn(2, '.');
+        for (name, read) in map {
+            let mut path = name.rsplitn(2, '.');
 
             let (extension, name) = (unwrap_none!(path.next()), unwrap_none!(path.next()));
             if extension == "bmp" {
@@ -61,18 +71,17 @@ impl AnimationHandler {
                 while animation.frames.len() <= index {
                     animation.frames.push(Default::default());
                 }
-                animation.frames[index] = AnimationHandler::parse_bmp(&file_path)?;
+                animation.frames[index] = AnimationHandler::parse_bmp(read)?;
             } else if extension == "json" {
-                AnimationHandler::load_config(&file_path, &mut animation)?;
+                AnimationHandler::load_config(read, &mut animation)?;
             }
         }
         self.animations.push(animation);
-        Ok(self.animations.last().unwrap())
+        Ok(unwrap_none!(self.animations.last()))
     }
 
-    fn parse_bmp(path: &Path) -> Result<AnimationFrame> {
-        let file = File::open(path)?;
-        let mut decoder = BMPDecoder::new(file);
+    fn parse_bmp<T: Read + Seek>(read: T) -> Result<AnimationFrame> {
+        let mut decoder = BMPDecoder::new(read);
         let image = decoder.read_image()?;
         match image {
             DecodingResult::U8(vec) => {
@@ -87,7 +96,11 @@ impl AnimationHandler {
                 for (index, chunk) in vec.chunks(21).enumerate() {
                     let mut row: [(u8, u8, u8); 7] = [(0u8, 0u8, 0u8); 7];
                     for (index, slice) in chunk.chunks(3).enumerate() {
-                        row[index] = (slice[0], slice[1], slice[2]);
+                        // Normalize to 0-150 instead of 0-255 because the torches can overheat
+                        let r = (u16::from(slice[0]) * 150 / 255) as u8;
+                        let g = (u16::from(slice[1]) * 150 / 255) as u8;
+                        let b = (u16::from(slice[2]) * 150 / 255) as u8;
+                        row[index] = (r, g, b);
                     }
                     result[index] = row;
                 }
@@ -96,7 +109,7 @@ impl AnimationHandler {
             _ => bail!("Unsupported binary format:"),
         }
     }
-    fn load_config(_path: &Path, _animation: &mut Animation) -> Result<()> {
+    fn load_config<T>(_read: T, _animation: &mut Animation) -> Result<()> {
         bail!("Not implemented");
     }
 }

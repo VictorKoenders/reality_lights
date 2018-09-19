@@ -25,8 +25,13 @@ impl Encoder for Codec {
     type Error = Error;
 
     fn encode(&mut self, item: ArtCommand, bytes: &mut BytesMut) -> Result<()> {
-        let bffer = item.into_buffer().unwrap();
-        bytes.extend_from_slice(&bffer);
+        let buffer = match item.into_buffer() {
+            Ok(b) => b,
+            Err(e) => {
+                panic!("Could not encode ArtCommand {:?}\n{:?}", item, e);
+            }
+        };
+        bytes.extend_from_slice(&buffer);
         Ok(())
     }
 }

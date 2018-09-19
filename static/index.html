@@ -1,0 +1,35 @@
+<html>
+
+<head>Reality Lights v1</head>
+
+<body>
+    <h1>Reality lights v1</h1>
+    <a href="https://github.com/victorkoenders/reality_lights">Source</a><br />
+    <h3>API</h3>
+    <code>GET /api/nodes</code> Get a list of all the torches currently in the
+    network<br />
+    <code>GET /api/animations</code> Get a list of all the animations<br />
+    <code>POST /api/animation/{name}</code> Upload a zip to the animation list.
+    The zip should contain 24-bit BMPs, 7 pixels wide by 22 pixels high, named
+    <code>0.bmp</code>, <code>1.bmp</code>, etc.</code><br />
+    <code>GET /api/set_animation/{ip}/{animation_name}</code> Set the torch at
+    IP <code>ip</code> to play animation <code>animation_name</code><br />
+    <h3>Manual uploaded</h3>
+    <form action="/api/animation" method="POST" enctype="multipart/form-data">
+        Name: <input type="text" name="name_input" /><br />
+        ZIP file: <input type="file" name="contents" /><br />
+        <input type="submit" />
+    </form>
+
+    <script type="text/javascript">
+        let form = document.forms[0];
+        let name_input = form.name_input;
+        console.log(form);
+        console.log(name_input);
+        name_input.onchange = name_input.onkeyup = function () {
+            form.action = "/api/animation/" + name_input.value.replace(/[ /\\]/g, "_");
+        };
+    </script>
+</body>
+
+</html>

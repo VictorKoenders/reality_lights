@@ -1,5 +1,6 @@
 use actix::Message;
 use artnet_protocol::ArtCommand;
+use bytes::Bytes;
 use std::net::Ipv4Addr;
 use Result;
 
@@ -26,10 +27,10 @@ pub struct ResponseNodeList {
 
 #[derive(Debug, Serialize)]
 pub struct Node {
-    pub ip: [u8; 4],
+    pub ip: String,
     pub short_name: String,
     pub long_name: String,
-    pub current_animation: Option<String>,
+    pub current_animation: String,
 }
 
 #[derive(Debug)]
@@ -45,7 +46,10 @@ pub struct ResponseAnimationList {
 }
 
 #[derive(Debug)]
-pub struct AddAnimation(pub Animation);
+pub struct AddAnimation {
+    name: String,
+    bytes: Bytes,
+}
 
 impl Message for AddAnimation {
     type Result = ();
@@ -54,6 +58,7 @@ impl Message for AddAnimation {
 #[derive(Default, Clone, Debug, Serialize)]
 pub struct Animation {
     pub name: String,
+    #[serde(skip_serializing)]
     pub frames: Vec<AnimationFrame>,
     pub fps: u16,
 }
@@ -62,9 +67,10 @@ pub type AnimationFrame = [[(u8, u8, u8); 7]; 22];
 
 #[derive(Debug)]
 pub struct SetNodeAnimation {
-    pub ip: [u8; 4],
+    pub ip: String,
+    pub animation_name: String,
 }
 
 impl Message for SetNodeAnimation {
-    type Result = ();
+    type Result = Result<()>;
 }
