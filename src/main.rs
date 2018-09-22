@@ -23,6 +23,7 @@ pub type Result<T> = std::result::Result<T, failure::Error>;
 
 mod animation_handler;
 mod artnet;
+mod config;
 mod messages;
 mod service;
 mod web;

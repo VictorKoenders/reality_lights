@@ -7,6 +7,7 @@ use actix_web::multipart::MultipartItem;
 use actix_web::server::Server;
 use actix_web::{server, App, FromRequest, HttpMessage, HttpRequest, HttpResponse, Path};
 use bytes::Bytes;
+use config::Config;
 use failure::Error;
 use futures::{future, Future, Stream};
 use messages::{AddAnimation, RequestAnimationList, RequestNodeList, SetNodeAnimation};
@@ -108,7 +109,6 @@ fn handler_set_node_animation(req: &HttpRequest<ServerState>) -> Response {
             ))));
         }
     };
-    println!("Setting {:?} to {:?}", ip, animation_name);
     Box::new(
         req.state()
             .set_node_animation
@@ -187,6 +187,7 @@ fn handler_add_animation(req: &HttpRequest<ServerState>) -> Response {
 }
 
 pub fn run(addr: &Addr<service::Service>) -> Addr<Server> {
+    let config = Config::from_file("config.json").expect("Could not load config");
     let addr = addr.clone();
     server::new(move || {
         App::with_state(ServerState::new(&addr))
@@ -199,7 +200,7 @@ pub fn run(addr: &Addr<service::Service>) -> Addr<Server> {
             }).resource("/api/animation/{name}", |r| {
                 r.route().a(handler_add_animation)
             })
-    }).bind("0.0.0.0:8001")
-    .expect("Could not bind to 0.0.0.0:8001")
+    }).bind(config.web_endpoint)
+    .expect("Could not bind web API")
     .start()
 }

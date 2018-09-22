@@ -1,16 +1,5 @@
 use actix::Message;
-use artnet_protocol::ArtCommand;
-use std::net::Ipv4Addr;
 use Result;
-
-pub struct SendMessage {
-    pub address: Ipv4Addr,
-    pub message: ArtCommand,
-}
-
-impl Message for SendMessage {
-    type Result = ();
-}
 
 #[derive(Debug)]
 pub struct RequestNodeList;

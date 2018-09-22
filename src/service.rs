@@ -6,17 +6,18 @@ use actix::{
 use animation_handler::AnimationHandler;
 use artnet::{Client, Codec};
 use artnet_protocol::{ArtCommand, Output};
+use config::Config;
 use failure::Error;
 use futures::sync::mpsc::{channel, Sender};
 use futures::{Future, Sink, Stream};
 use messages::{
     AddAnimation, RequestAnimationList, RequestNodeList, ResponseAnimationList, ResponseNodeList,
-    SendMessage, SetNodeAnimation,
+    SetNodeAnimation,
 };
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Cursor, Read as IoRead, Write as IoWrite};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket as NetSocket};
+use std::net::{SocketAddr, UdpSocket as NetSocket};
 use std::time::Duration;
 use std::{fs, mem};
 use time;
@@ -24,19 +25,23 @@ use tokio_reactor::Handle;
 use tokio_udp::{UdpFramed, UdpSocket};
 use zip::ZipArchive;
 use Result;
+#[cfg(unix)]
+extern crate libc;
 
 pub struct Service {
-    udp_sender: Sender<(ArtCommand, SocketAddr)>,
+    config: Config,
     clients: HashMap<SocketAddr, Client>,
     animations: AnimationHandler,
+    udp_sender: Sender<(ArtCommand, SocketAddr)>,
 }
 
 impl Default for Service {
     fn default() -> Service {
         Service {
-            udp_sender: channel(0).0,
+            config: Config::from_file("config.json").expect("Could not load config"),
             clients: HashMap::new(),
             animations: AnimationHandler::new().expect("Cannot load animation handler"),
+            udp_sender: channel(0).0,
         }
     }
 }
@@ -73,31 +78,47 @@ impl StreamHandler<(ArtCommand, SocketAddr), Error> for Service {
 
 impl Service {
     fn init(&mut self, ctx: &mut Context<Self>) -> Result<()> {
-        let socket = NetSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 6454))?;
+        println!("Binding listening address");
+        let socket = NetSocket::bind("0.0.0.0:6454")?;
+
+        #[cfg(unix)]
+        unsafe {
+            use std::os::unix::io::AsRawFd;
+            let optval: libc::c_int = 1;
+            let ret = libc::setsockopt(
+                socket.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_REUSEPORT,
+                &optval as *const _ as *const libc::c_void,
+                mem::size_of_val(&optval) as libc::socklen_t,
+            );
+            if ret != 0 {
+                panic!("setsockopt failed");
+            }
+        }
         socket.set_broadcast(true)?;
+
         let framed = UdpFramed::new(
             UdpSocket::from_std(socket, &Handle::default())?,
             Codec::default(),
         );
 
-        let (sink, stream) = framed.split();
         let (sender, receiver) = channel(100);
-
-        Self::add_stream(stream, ctx);
-        self.udp_sender = sender;
+        let (sink, stream) = framed.split();
         let sink_future: Box<Future<Item = (), Error = ()>> = Box::new(
-            sink.sink_map_err(|e| {
-                panic!("Could not send_all: {:?}", e);
+            sink.sink_map_err(move |e| {
+                panic!("Could not send_all {:?}", e);
             }).send_all(receiver.map_err(|e| {
                 panic!("Could not receive data from internal receiver: {:?}", e);
             })).map(|_| ()),
         );
-
+        Self::add_stream(stream, ctx);
         ctx.spawn(wrap_future(sink_future));
+        self.udp_sender = sender;
 
         self.tick(ctx);
         ctx.run_interval(Duration::from_secs(1), Self::tick);
-        ctx.run_interval(Duration::from_millis(10), Self::render);
+        ctx.run_interval(Duration::from_millis(33), Self::render);
 
         Ok(())
     }
@@ -105,16 +126,20 @@ impl Service {
         let remove_time = time::precise_time_s() - 30.;
         self.clients
             .retain(|_, v| v.last_reply_received > remove_time);
-        let broadcast_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(255, 255, 255, 255)), 6454);
-        self.udp_sender
-            .try_send((ArtCommand::Poll(Default::default()), broadcast_addr))
-            .expect("Can not broadcast");
+        for ip in &mut self.config.broadcasts {
+            if let Err(e) = self
+                .udp_sender
+                .try_send((ArtCommand::Poll(Default::default()), *ip))
+            {
+                println!("Can not broadcast: {:?}", e);
+            }
+        }
     }
 
     fn render(&mut self, _: &mut Context<Self>) {
         for (addr, client) in &mut self.clients {
             if let Some(animation) = self.animations.animations.get(&client.current_animation) {
-                client.millis_since_last_frame += 10;
+                client.millis_since_last_frame += 33;
                 let millis_per_frame = 1000 / usize::from(animation.fps);
                 if client.millis_since_last_frame >= millis_per_frame {
                     client.millis_since_last_frame -= millis_per_frame;
@@ -131,25 +156,19 @@ impl Service {
                     ..Output::default()
                 };
                 assert_eq!(message.length as usize, message.data.len());
-                self.udp_sender
+                if let Err(e) = self
+                    .udp_sender
                     .try_send((ArtCommand::Output(message), *addr))
-                    .expect("Can not send animation");
+                {
+                    println!("Can not send animation: {:?}", e);
+                    continue;
+                }
                 client.current_animation_frame =
                     (client.current_animation_frame + 1) % animation.frames.len();
             } else {
                 client.current_animation_frame = 0;
             }
         }
-    }
-}
-
-impl Handler<SendMessage> for Service {
-    type Result = ();
-
-    fn handle(&mut self, message: SendMessage, _: &mut Context<Self>) {
-        self.udp_sender
-            .try_send((message.message, (message.address, 6454).into()))
-            .expect("Could not send SendMessage");
     }
 }
 
@@ -231,6 +250,7 @@ impl Handler<SetNodeAnimation> for Service {
             if client.addr_string == animation.ip {
                 client.current_animation = animation.animation_name;
                 client.current_animation_frame = 0;
+                client.millis_since_last_frame = 1000;
                 return Ok(());
             }
         }
