@@ -12,11 +12,13 @@ impl Decoder for Codec {
     type Error = Error;
 
     fn decode(&mut self, bytes: &mut BytesMut) -> Result<Option<Self::Item>> {
-        let command = ArtCommand::from_buffer(&bytes).unwrap_or_else(|e| {
-            println!("Could not decode bytes: {:?}", e);
-            panic!("{:?}", bytes);
-        });
-        Ok(Some(command))
+        Ok(match ArtCommand::from_buffer(&bytes) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                println!("Could not decode bytes: {:?}", e);
+                None
+            }
+        })
     }
 }
 
@@ -28,6 +30,7 @@ impl Encoder for Codec {
         let buffer = match item.into_buffer() {
             Ok(b) => b,
             Err(e) => {
+                // Should never happen
                 panic!("Could not encode ArtCommand: {:?}", e);
             }
         };

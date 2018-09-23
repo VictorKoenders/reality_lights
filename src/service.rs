@@ -65,7 +65,14 @@ impl StreamHandler<(ArtCommand, SocketAddr), Error> for Service {
     fn handle(&mut self, (command, addr): (ArtCommand, SocketAddr), _ctx: &mut Context<Self>) {
         if !self.clients.contains_key(&addr) {
             if let ArtCommand::PollReply(reply) = &command {
-                self.clients.insert(addr, Client::new(addr, reply));
+                let client = match Client::new(addr, reply) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        println!("Could not accept client: {:?}", e);
+                        return;
+                    }
+                };
+                self.clients.insert(addr, client);
             } else {
                 return;
             }

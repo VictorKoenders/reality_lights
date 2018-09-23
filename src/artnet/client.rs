@@ -1,7 +1,9 @@
 use artnet_protocol::PollReply;
+use failure::ResultExt;
 use messages::Node;
 use std::net::SocketAddr;
 use std::str;
+use Result;
 
 pub struct Client {
     pub socket_address: SocketAddr,
@@ -16,7 +18,7 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(socket_address: SocketAddr, reply: &PollReply) -> Client {
+    pub fn new(socket_address: SocketAddr, reply: &PollReply) -> Result<Client> {
         let short_name_index = reply
             .short_name
             .iter()
@@ -27,21 +29,25 @@ impl Client {
             .iter()
             .position(|b| *b == 0)
             .unwrap_or_else(|| reply.long_name.len());
-        Client {
+
+        let short_name = str::from_utf8(&reply.short_name[..short_name_index])
+            .context("Could not get short_name")?
+            .to_owned();
+        let long_name = str::from_utf8(&reply.long_name[..long_name_index])
+            .context("Could not get long_name")?
+            .to_owned();
+
+        Ok(Client {
             socket_address,
             addr: reply.address.octets(),
             addr_string: format!("{}", reply.address),
-            short_name: str::from_utf8(&reply.short_name[..short_name_index])
-                .expect("Could not decode torch short_name")
-                .to_owned(),
-            long_name: str::from_utf8(&reply.long_name[..long_name_index])
-                .expect("Could not decode torch long_name")
-                .to_owned(),
+            short_name,
+            long_name,
             last_reply_received: 0.,
             current_animation: String::from("green"),
             millis_since_last_frame: 0,
             current_animation_frame: 0,
-        }
+        })
     }
 
     pub fn get_node(&self) -> Node {
