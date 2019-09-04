@@ -1,7 +1,8 @@
+use crate::Result;
+use serde::Deserialize;
 use serde_json;
 use std::fs::File;
 use std::net::SocketAddr;
-use Result;
 
 #[derive(Deserialize, Debug)]
 pub struct Config {

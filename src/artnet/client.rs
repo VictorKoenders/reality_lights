@@ -1,9 +1,9 @@
+use crate::messages::Node;
+use crate::Result;
 use artnet_protocol::PollReply;
 use failure::ResultExt;
-use messages::Node;
 use std::net::SocketAddr;
 use std::str;
-use Result;
 
 pub struct Client {
     pub socket_address: SocketAddr,

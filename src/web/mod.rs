@@ -1,19 +1,16 @@
+use crate::config::Config;
+use crate::messages::{AddAnimation, RequestAnimationList, RequestNodeList, SetNodeAnimation};
+use crate::service;
 use actix::{Addr, Recipient};
-use actix_web::dev::Payload;
-use actix_web::fs::NamedFile;
-use actix_web::http::header::{ContentDisposition, DispositionParam};
-use actix_web::http::Method;
-use actix_web::multipart::MultipartItem;
-use actix_web::server::Server;
-use actix_web::{server, App, FromRequest, HttpMessage, HttpRequest, HttpResponse, Path};
-use bytes::Bytes;
-use config::Config;
+use actix_files::NamedFile;
+use actix_http::http;
+use actix_multipart::Multipart;
+use actix_web::dev::Server;
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use failure::Error;
 use futures::{future, Future, Stream};
-use messages::{AddAnimation, RequestAnimationList, RequestNodeList, SetNodeAnimation};
 use serde::Serialize;
 use serde_json;
-use service;
 
 pub struct ServerState {
     pub request_node_list: Recipient<RequestNodeList>,
@@ -36,31 +33,9 @@ impl ServerState {
         }
     }
 }
+type Response = Box<dyn Future<Item = HttpResponse, Error = Error>>;
 
-struct Unimplemented {
-    _marker: ::std::marker::PhantomData<()>,
-}
-impl ::std::error::Error for Unimplemented {
-    fn description(&self) -> &'static str {
-        panic!();
-    }
-}
-impl ::std::fmt::Display for Unimplemented {
-    fn fmt(&self, _: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        panic!();
-    }
-}
-impl ::std::fmt::Debug for Unimplemented {
-    fn fmt(&self, _: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
-        panic!();
-    }
-}
-
-impl ::actix_web::ResponseError for Unimplemented {}
-
-type Response = Box<Future<Item = HttpResponse, Error = Unimplemented>>;
-
-fn index(_req: &HttpRequest<ServerState>) -> ::std::result::Result<NamedFile, Error> {
+fn index(_req: HttpRequest) -> ::std::result::Result<NamedFile, Error> {
     Ok(NamedFile::open("static/index.html")?)
 }
 
@@ -76,131 +51,185 @@ fn err(e: &Error) -> HttpResponse {
     HttpResponse::BadRequest().body(e.to_string())
 }
 
-fn handler_request_node_list(req: &HttpRequest<ServerState>) -> Response {
+fn handler_request_node_list(req: HttpRequest) -> Response {
     Box::new(
-        req.state()
+        req.app_data::<ServerState>()
+            .unwrap()
             .request_node_list
             .send(RequestNodeList)
             .map(|response| match response {
                 Ok(r) => json(r.nodes),
                 Err(e) => err(&e),
-            }).or_else(|e| Ok(err(&e.into()))),
+            })
+            .or_else(|e| Ok(err(&e.into()))),
     )
 }
-fn handler_request_animation_list(req: &HttpRequest<ServerState>) -> Response {
+fn handler_request_animation_list(req: HttpRequest) -> Response {
     Box::new(
-        req.state()
+        req.app_data::<ServerState>()
+            .unwrap()
             .request_animation_list
             .send(RequestAnimationList)
             .map(|response| match response {
                 Ok(r) => json(r.animations),
                 Err(e) => err(&e),
-            }).or_else(|e| Ok(err(&e.into()))),
+            })
+            .or_else(|e| Ok(err(&e.into()))),
     )
 }
 
-fn handler_set_node_animation(req: &HttpRequest<ServerState>) -> Response {
-    let (ip, animation_name) = match Path::<(String, String)>::extract(req) {
-        Ok(p) => p.into_inner(),
-        Err(e) => {
-            return Box::new(future::ok(err(&format_err!(
-                "Could not get params: {:?}",
-                e
-            ))));
-        }
-    };
+fn handler_set_node_animation(
+    (req, param): (HttpRequest, web::Path<(String, String)>),
+) -> Response {
+    let ip = param.0.clone();
+    let animation_name = param.1.clone();
     Box::new(
-        req.state()
+        req.app_data::<ServerState>()
+            .unwrap()
             .set_node_animation
             .send(SetNodeAnimation { ip, animation_name })
             .map(|v| match v {
                 Ok(_) => str(String::from("ok")),
                 Err(e) => err(&e),
-            }).or_else(|e| Ok(err(&e.into()))),
+            })
+            .or_else(|e| Ok(err(&e.into()))),
     )
 }
 
-fn handle_multipart_item(
-    item: MultipartItem<Payload>,
-) -> Box<Stream<Item = (Option<ContentDisposition>, Bytes), Error = Error>> {
-    match item {
-        MultipartItem::Field(field) => {
-            let content_disposition = field.content_disposition();
-            Box::new(
-                field
-                    .map(move |f| (content_disposition.clone(), f))
-                    .map_err(Error::from),
-            )
+#[derive(Debug)]
+enum UploadItem {
+    Form { name: String, value: String },
+    File { data: Vec<u8> },
+}
+
+impl UploadItem {
+    pub fn get_formdata_name(&self) -> Option<&str> {
+        match self {
+            UploadItem::Form { value, .. } => Some(value),
+            _ => None,
         }
-        MultipartItem::Nested(mp) => {
-            println!("Found nested");
-            Box::new(mp.map_err(Error::from).map(handle_multipart_item).flatten())
+    }
+
+    pub fn get_file_data(&self) -> Option<&[u8]> {
+        match self {
+            UploadItem::File { data } => Some(&data),
+            _ => None,
         }
     }
 }
 
-fn handler_add_animation(req: &HttpRequest<ServerState>) -> Response {
-    let req = req.clone();
-    let animation_name = match Path::<String>::extract(&req) {
-        Ok(p) => p.into_inner(),
-        Err(e) => {
-            return Box::new(future::ok(str(format!("Could not get params: {:?}", e))));
-        }
-    };
-    Box::new(Box::new(
-        req.multipart()
-            .map_err(Error::from)
-            .map(handle_multipart_item)
-            .flatten()
-            .filter_map(|(disposition, bytes)| {
-                let disposition = match disposition {
-                    Some(d) => d,
-                    None => return None,
-                };
-                for param in disposition.parameters {
-                    if let DispositionParam::Filename(_name) = param {
-                        return Some(bytes);
-                    }
+fn map_multipart_field(
+    field: actix_multipart::Field,
+) -> Box<dyn Future<Item = Option<UploadItem>, Error = Error>> {
+    match field.content_disposition() {
+        None => Box::new(future::ok(None)),
+        Some(http::header::ContentDisposition {
+            disposition: http::header::DispositionType::FormData,
+            parameters,
+        }) => {
+            let item = if let Some(http::header::DispositionParam::Filename(_)) = parameters.get(1)
+            {
+                UploadItem::File { data: Vec::new() }
+            } else if let Some(http::header::DispositionParam::Name(name)) = parameters.get(0) {
+                UploadItem::Form {
+                    name: name.clone(),
+                    value: String::new(),
                 }
-                None
-            }).collect()
-            .and_then(move |file| {
-                let file = file
-                    .iter()
-                    .flat_map(|b| b.as_ref())
-                    .cloned()
-                    .collect::<Vec<u8>>();
-                req.state()
-                    .add_animation
-                    .send(AddAnimation {
-                        name: animation_name,
-                        bytes: file,
-                    }).map(|e| match e {
-                        Ok(_) => str(String::from("ok")),
-                        Err(e) => err(&e),
-                    }).or_else(|e| future::ok(err(&e.into())))
-            }).or_else(|e| {
-                println!("failed: {}", e);
-                future::ok(err(&e))
-            }),
-    ))
+            } else {
+                return Box::new(futures::future::ok(None));
+            };
+            Box::new(
+                field
+                    .map_err(|e| format_err!("Multipart field error: {:?}", e))
+                    .fold(item, |mut item, chunk| {
+                        match &mut item {
+                            UploadItem::File { data } => data.extend_from_slice(&chunk),
+                            UploadItem::Form { value, .. } => {
+                                if let Ok(val) = std::str::from_utf8(&chunk) {
+                                    *value += val;
+                                }
+                            }
+                        }
+                        Ok::<_, Error>(item)
+                    })
+                    .map(Some),
+            )
+        }
+        x => {
+            eprintln!("Unknown multipart item: {:?}", x);
+            Box::new(futures::future::ok(None))
+        }
+    }
+    /*println!("Field: {:?}", field);
+    println!("Headers:");
+    for (name, value) in field.headers() {
+        println!(" - {} = {:?}", name, value.to_str());
+    }
+    println!("Content type: {:?}", field.content_type());
+    println!("Content disposition: {:?}", field.content_disposition());
+    field
+    .map_err(|e| format_err!("Multipart field error: {:?}", e))
+    .fold((), |_, chunk| {
+        println!("-- Chunk: \n{:?}", chunk);
+        Ok::<_, Error>(())
+    })*/
 }
 
-pub fn run(addr: &Addr<service::Service>) -> Addr<Server> {
+fn handler_add_animation(
+    (req, multipart, _animation_name): (HttpRequest, Multipart, web::Path<String>),
+) -> Response {
+    Box::new(
+        multipart
+            .map_err(|e| format_err!("Multipart error: {:?}", e))
+            .and_then(map_multipart_field)
+            .filter_map(|e| e)
+            .collect()
+            .map(move |params| {
+                let name = params.iter().find_map(|f| f.get_formdata_name());
+                let data = params.iter().find_map(|f| f.get_file_data());
+
+                if let (Some(name), Some(data)) = (name, data) {
+                    future::Either::A(
+                        req.app_data::<ServerState>()
+                            .unwrap()
+                            .add_animation
+                            .send(AddAnimation {
+                                name: name.to_owned(),
+                                bytes: data.to_vec(),
+                            })
+                            .map(|e| match e {
+                                Ok(_) => str(String::from("ok")),
+                                Err(e) => err(&e),
+                            })
+                            .or_else(|e| future::ok(err(&e.into()))),
+                    )
+                } else {
+                    future::Either::B(future::ok(str("Invalid form data".to_owned())))
+                }
+            })
+            .and_then(|e| e),
+    )
+}
+
+pub fn run(addr: &Addr<service::Service>) -> Server {
     let config = Config::from_file("config.json").expect("Could not load config");
     let addr = addr.clone();
-    server::new(move || {
-        App::with_state(ServerState::new(&addr))
-            .resource("/", |r| r.method(Method::GET).f(index))
-            .resource("/api/nodes", |r| r.route().a(handler_request_node_list))
-            .resource("/api/animations", |r| {
-                r.route().a(handler_request_animation_list)
-            }).resource("/api/set_animation/{ip:[\\w\\.]+}/{animation}", |r| {
-                r.route().a(handler_set_node_animation)
-            }).resource("/api/animation/{name}", |r| {
-                r.route().a(handler_add_animation)
-            })
-    }).bind(config.web_endpoint)
+    let result = HttpServer::new(move || {
+        App::new()
+            .data(ServerState::new(&addr))
+            .service(web::resource("/").to(index))
+            .service(web::resource("/api/nodes").to(handler_request_node_list))
+            .service(web::resource("/api/animations").to(handler_request_animation_list))
+            .service(
+                web::resource("/api/set_animation/{ip:[\\w\\.]+}/{animation}")
+                    .to(handler_set_node_animation),
+            )
+            .service(web::resource("/api/animation/{name}").to(handler_add_animation))
+    })
+    .bind(config.web_endpoint)
     .expect("Could not bind web API")
-    .start()
+    .start();
+
+    println!("Server running on {}", config.web_endpoint);
+    result
 }

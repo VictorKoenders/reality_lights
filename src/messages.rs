@@ -1,5 +1,6 @@
+use crate::Result;
 use actix::Message;
-use Result;
+use serde::Serialize;
 
 #[derive(Debug)]
 pub struct RequestNodeList;

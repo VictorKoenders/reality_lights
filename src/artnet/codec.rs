@@ -1,8 +1,8 @@
+use crate::Result;
 use artnet_protocol::ArtCommand;
 use bytes::BytesMut;
 use failure::Error;
 use tokio_codec::{Decoder, Encoder};
-use Result;
 
 #[derive(Default)]
 pub struct Codec {}

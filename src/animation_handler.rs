@@ -1,11 +1,11 @@
+use crate::messages::{Animation, AnimationFrame};
+use crate::Result;
 use image::bmp::BMPDecoder;
-use image::{DecodingResult, ImageDecoder};
-use messages::{Animation, AnimationFrame};
+use image::ImageDecoder;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Cursor, Read};
 use std::str;
-use Result;
 
 pub struct AnimationHandler {
     pub animations: HashMap<String, Animation>,
@@ -89,37 +89,33 @@ impl AnimationHandler {
     }
 
     fn parse_bmp(read: &[u8]) -> Result<AnimationFrame> {
-        let mut decoder = BMPDecoder::new(Cursor::new(read));
+        let decoder = BMPDecoder::new(Cursor::new(read))?;
         let image = decoder.read_image()?;
-        match image {
-            DecodingResult::U8(vec) => {
-                let mut result = AnimationFrame::default();
-                if vec.len() != 22 * 7 * 3 {
-                    bail!(
-                        "Unexpected byte length, expected {}, got {}",
-                        22 * 7 * 3,
-                        vec.len()
-                    );
-                }
-                for (index, chunk) in vec.chunks(21).enumerate() {
-                    let mut row: [(u8, u8, u8); 7] = [(0u8, 0u8, 0u8); 7];
-                    for (index, slice) in chunk.chunks(3).enumerate() {
-                        // Normalize to 0-150 instead of 0-255 because the torches can overheat
-                        let r = (u16::from(slice[0]) * 100 / 255) as u8;
-                        let g = (u16::from(slice[1]) * 100 / 255) as u8;
-                        let b = (u16::from(slice[2]) * 100 / 255) as u8;
-                        assert!(r <= 100);
-                        assert!(g <= 100);
-                        assert!(b <= 100);
-                        row[index] = (r, g, b);
-                    }
-                    result[index] = row;
-                }
-                Ok(result)
-            }
-            _ => bail!("Unsupported binary format:"),
+        let mut result = AnimationFrame::default();
+        if image.len() != 22 * 7 * 3 {
+            bail!(
+                "Unexpected byte length, expected {}, got {}",
+                22 * 7 * 3,
+                image.len()
+            );
         }
+        for (index, chunk) in image.chunks(21).enumerate() {
+            let mut row: [(u8, u8, u8); 7] = [(0u8, 0u8, 0u8); 7];
+            for (index, slice) in chunk.chunks(3).enumerate() {
+                // Normalize to 0-150 instead of 0-255 because the torches can overheat
+                let r = (u16::from(slice[0]) * 100 / 255) as u8;
+                let g = (u16::from(slice[1]) * 100 / 255) as u8;
+                let b = (u16::from(slice[2]) * 100 / 255) as u8;
+                assert!(r <= 100);
+                assert!(g <= 100);
+                assert!(b <= 100);
+                row[index] = (r, g, b);
+            }
+            result[index] = row;
+        }
+        Ok(result)
     }
+
     fn load_config(read: &[u8], animation: &mut Animation) -> Result<()> {
         let fps: u8 = str::from_utf8(read)?.trim().parse()?;
         animation.fps = fps;

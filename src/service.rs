@@ -1,19 +1,20 @@
+use crate::animation_handler::AnimationHandler;
+use crate::artnet::{Client, Codec};
+use crate::config::Config;
+use crate::messages::{
+    AddAnimation, RequestAnimationList, RequestNodeList, ResponseAnimationList, ResponseNodeList,
+    SetNodeAnimation,
+};
+use crate::Result;
 use actix::fut::wrap_future;
 use actix::{
     Actor, ActorContext, ArbiterService, AsyncContext, Context, Handler, Message, StreamHandler,
     Supervised,
 };
-use animation_handler::AnimationHandler;
-use artnet::{Client, Codec};
 use artnet_protocol::{ArtCommand, Output};
-use config::Config;
 use failure::Error;
 use futures::sync::mpsc::{channel, Sender};
 use futures::{Future, Sink, Stream};
-use messages::{
-    AddAnimation, RequestAnimationList, RequestNodeList, ResponseAnimationList, ResponseNodeList,
-    SetNodeAnimation,
-};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Cursor, Read as IoRead, Write as IoWrite};
@@ -24,9 +25,6 @@ use time;
 use tokio_reactor::Handle;
 use tokio_udp::{UdpFramed, UdpSocket};
 use zip::ZipArchive;
-use Result;
-#[cfg(unix)]
-extern crate libc;
 
 pub struct Service {
     config: Config,
@@ -112,12 +110,14 @@ impl Service {
 
         let (sender, receiver) = channel(100);
         let (sink, stream) = framed.split();
-        let sink_future: Box<Future<Item = (), Error = ()>> = Box::new(
+        let sink_future: Box<dyn Future<Item = (), Error = ()>> = Box::new(
             sink.sink_map_err(move |e| {
                 panic!("Could not send_all {:?}", e);
-            }).send_all(receiver.map_err(|e| {
+            })
+            .send_all(receiver.map_err(|e| {
                 panic!("Could not receive data from internal receiver: {:?}", e);
-            })).map(|_| ()),
+            }))
+            .map(|_| ()),
         );
         Self::add_stream(stream, ctx);
         ctx.spawn(wrap_future(sink_future));
