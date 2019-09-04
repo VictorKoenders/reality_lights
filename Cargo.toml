@@ -21,9 +21,7 @@ tokio-reactor = "0.1.5"
 tokio-tcp = "0.1.1"
 tokio-udp = "0.1.2"
 zip = "0.4.2"
+artnet_protocol = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.43"
-
-[dependencies.artnet_protocol]
-path = "libs/artnet_protocol"

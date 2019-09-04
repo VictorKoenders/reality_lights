@@ -1,3 +1,0 @@
-[submodule "libs/artnet_protocol"]
-	path = libs/artnet_protocol
-	url = https://github.com/trangar/artnet_protocol
