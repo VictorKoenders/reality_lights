@@ -7,7 +7,6 @@ use std::net::SocketAddr;
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub web_endpoint: SocketAddr,
-    pub torch_endpoints: Vec<SocketAddr>,
     pub broadcasts: Vec<SocketAddr>,
     pub torch_mappings: Vec<TorchMap>,
 }
