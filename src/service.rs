@@ -130,9 +130,6 @@ impl Service {
         Ok(())
     }
     fn tick(&mut self, _context: &mut Context<Self>) {
-        let remove_time = time::precise_time_s() - 30.;
-        self.clients
-            .retain(|_, v| v.last_reply_received > remove_time);
         for ip in &mut self.config.broadcasts {
             if let Err(e) = self
                 .udp_sender
