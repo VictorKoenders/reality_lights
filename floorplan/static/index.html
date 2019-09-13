@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <title>TR floor plan</title>
+    <style>
+        table {
+            width: 100%;
+        }
+
+        table td {
+            text-align: center;
+        }
+
+        table td select {
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <script type="text/javascript">
+        let mapping = null;
+        fetch("/api/mapping").then(j => j.json()).then(_mapping => {
+            mapping = _mapping;
+            const html = document.createElement("table");
+            let current_row = document.createElement("tr");
+            let count = 0;
+            html.appendChild(current_row);
+            for (const area of mapping.areas) {
+                current_row.appendChild(create_color(area));
+                count++;
+                if (count % 2 == 0) {
+                    current_row = document.createElement("tr");
+                    html.appendChild(current_row);
+                }
+            }
+            document.body.appendChild(html);
+
+            updateAnimations();
+            updateValues();
+        });
+
+        function create_color(area) {
+            const html = document.createElement("td");
+            const table = document.createElement("table");
+            table.style.backgroundColor = area.color;
+
+            for (let i = 0; i < area.rows; i++) {
+                const row = document.createElement("tr");
+
+                const left = create_select(area.color, i, "left");
+                const name = document.createElement("td");
+                name.innerHTML = (i + 1).toString();
+                const right = create_select(area.color, i, "right");
+
+                row.appendChild(left);
+                row.appendChild(name);
+                row.appendChild(right);
+                table.appendChild(row);
+            }
+
+            html.appendChild(table);
+            return html;
+        }
+
+        function create_select(color, row, side) {
+            const select = document.createElement("select");
+            select.dataset.color = color;
+            select.dataset.row = row;
+            select.dataset.side = side;
+
+            select.addEventListener("change", select_on_change);
+            select.addEventListener("keyup", select_on_keyup);
+            select.addEventListener("blur", select_on_blur);
+            return select
+        }
+
+        function select_on_change(e) {
+            const color = this.dataset.color;
+            const side = this.dataset.side;
+            const row = this.dataset.row;
+            const value = this.value;
+
+            fetch("/api/set/" + color + "/" + row + "/" + side + "/a/" + value);
+            this.dispatchEvent(new Event("blur"));
+        }
+
+        function select_on_keyup(e) {
+            if (e.keyCode == 27) {
+                this.dispatchEvent(new Event("blur"));
+            }
+        }
+
+        function select_on_blur(e) {
+            if (document.activeElement == this) {
+                document.activeElement.blur();
+            }
+        }
+
+        function updateAnimations() {
+            fetch("/api/animations").then(j => j.json()).then(animations => {
+                console.log(animations);
+
+                const selects = document.getElementsByTagName("select");
+                for (const select of selects) {
+                    if (!selectHasOption(select, "")) {
+                        const option = document.createElement("option");
+                        option.innerText = "";
+                        option.value = "";
+                        select.appendChild(option);
+                    }
+                    for (const animation of animations) {
+                        if (!selectHasOption(select, animation.name)) {
+                            const option = document.createElement("option");
+                            option.innerText = animation.name;
+                            option.value = animation.name;
+                            select.appendChild(option);
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateValues() {
+            fetch("api/nodes").then(j => j.json()).then(nodes => {
+                for (let node of nodes) {
+                    if (mapping.mapping.hasOwnProperty(node.ip)) {
+                        let node_mapping = mapping.mapping[node.ip];
+                        // node: { ip: "192.168.1.103", short_name: "LED strip", long_name: "LED strip controller for OHM 2013", current_animation: "yellow" }
+                        // node_mapping: { color: "yellow", side: "left", row: 5 }
+
+                        let select = document.querySelector("select[data-side='" + node_mapping.side + "'][data-row='" + node_mapping.row + "'][data-color='" + node_mapping.color + "']");
+                        if (document.activeElement == select) continue;
+                        for (let i = 0; i < select.options.length; i++) {
+                            const option = select.options[i]
+                            if (option.value == node.current_animation) {
+                                select.selectedIndex = i;
+                            }
+                        }
+                    } else {
+                        console.log(node, "has no mapping");
+                    }
+                }
+
+                setTimeout(function () { updateValues(); }, 500);
+            });
+        }
+
+        function selectHasOption(select, value) {
+            for (const option of select.options) {
+                if (option.value == value) return true;
+            }
+            return false;
+        }
+
+
+    </script>
+</body>
+
+</html>

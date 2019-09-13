@@ -1,0 +1,31 @@
+{
+    "mapping": {
+        "192.168.1.103": {
+            "side": "left",
+            "color": "yellow",
+            "row": 5
+        }
+    },
+    "areas": [
+        {
+            "color": "yellow",
+            "rows": 8
+        },
+        {
+            "color": "red",
+            "rows": 8
+        },
+        {
+            "color": "green",
+            "rows": 8
+        },
+        {
+            "color": "blue",
+            "rows": 8
+        },
+        {
+            "color": "white",
+            "rows": 8
+        }
+    ]
+}
