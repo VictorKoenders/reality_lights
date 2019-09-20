@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::messages::{AddAnimation, RequestAnimationList, RequestNodeList, SetNodeAnimation};
+use crate::messages::{AddAnimation, RequestAnimationList, RequestNodeList, SetNodeAnimation, SetNodeColor};
 use crate::service;
 use actix::{Addr, Recipient};
 use actix_files::NamedFile;
@@ -17,6 +17,7 @@ pub struct ServerState {
     pub request_animation_list: Recipient<RequestAnimationList>,
     pub add_animation: Recipient<AddAnimation>,
     pub set_node_animation: Recipient<SetNodeAnimation>,
+    pub set_node_color: Recipient<SetNodeColor>,
 }
 
 impl ServerState {
@@ -25,11 +26,13 @@ impl ServerState {
         let request_animation_list = addr.clone().recipient();
         let add_animation = addr.clone().recipient();
         let set_node_animation = addr.clone().recipient();
+        let set_node_color = addr.clone().recipient();
         ServerState {
             request_node_list,
             request_animation_list,
             add_animation,
             set_node_animation,
+            set_node_color,
         }
     }
 }
@@ -88,6 +91,25 @@ fn handler_set_node_animation(
             .unwrap()
             .set_node_animation
             .send(SetNodeAnimation { ip, animation_name })
+            .map(|v| match v {
+                Ok(_) => str(String::from("ok")),
+                Err(e) => err(&e),
+            })
+            .or_else(|e| Ok(err(&e.into()))),
+    )
+}
+
+
+fn handler_set_node_color(
+    (req, param): (HttpRequest, web::Path<(String, String)>),
+) -> Response {
+    let ip = param.0.clone();
+    let color_name = param.1.clone();
+    Box::new(
+        req.app_data::<ServerState>()
+            .unwrap()
+            .set_node_color
+            .send(SetNodeColor { ip, color_name })
             .map(|v| match v {
                 Ok(_) => str(String::from("ok")),
                 Err(e) => err(&e),
@@ -160,19 +182,6 @@ fn map_multipart_field(
             Box::new(futures::future::ok(None))
         }
     }
-    /*println!("Field: {:?}", field);
-    println!("Headers:");
-    for (name, value) in field.headers() {
-        println!(" - {} = {:?}", name, value.to_str());
-    }
-    println!("Content type: {:?}", field.content_type());
-    println!("Content disposition: {:?}", field.content_disposition());
-    field
-    .map_err(|e| format_err!("Multipart field error: {:?}", e))
-    .fold((), |_, chunk| {
-        println!("-- Chunk: \n{:?}", chunk);
-        Ok::<_, Error>(())
-    })*/
 }
 
 fn handler_add_animation(
@@ -223,6 +232,9 @@ pub fn run(addr: &Addr<service::Service>) -> Server {
             .service(
                 web::resource("/api/set_animation/{ip:[\\w\\.]+}/{animation}")
                     .to(handler_set_node_animation),
+            )
+            .service(
+                web::resource("/api/set_color/{ip:[\\w\\.]+}/{color}").to(handler_set_node_color),
             )
             .service(web::resource("/api/animation/{name}").to(handler_add_animation))
     })

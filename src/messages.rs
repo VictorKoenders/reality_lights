@@ -74,3 +74,13 @@ pub struct SetNodeAnimation {
 impl Message for SetNodeAnimation {
     type Result = Result<()>;
 }
+
+#[derive(Debug)]
+pub struct SetNodeColor {
+    pub ip: String,
+    pub color_name: String,
+}
+
+impl Message for SetNodeColor {
+    type Result = Result<()>;
+}

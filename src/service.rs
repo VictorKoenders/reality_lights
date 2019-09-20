@@ -3,7 +3,7 @@ use crate::artnet::{Client, Codec, RenderMode};
 use crate::config::Config;
 use crate::messages::{
     AddAnimation, RequestAnimationList, RequestNodeList, ResponseAnimationList, ResponseNodeList,
-    SetNodeAnimation,
+    SetNodeAnimation, SetNodeColor,
 };
 use crate::Result;
 use actix::fut::wrap_future;
@@ -12,7 +12,7 @@ use actix::{
     Supervised,
 };
 use artnet_protocol::{ArtCommand, Output};
-use failure::Error;
+use failure::{Error, ResultExt};
 use futures::sync::mpsc::{channel, Sender};
 use futures::{Future, Sink, Stream};
 use std::collections::HashMap;
@@ -280,5 +280,30 @@ impl Handler<SetNodeAnimation> for Service {
             }
         }
         bail!("Torch with ip {} not found", animation.ip)
+    }
+}
+
+impl Handler<SetNodeColor> for Service {
+    type Result = <SetNodeColor as Message>::Result;
+
+    fn handle(&mut self, color: SetNodeColor, _context: &mut Self::Context) -> Self::Result {
+        if color.color_name.len() != 6 {
+            bail!("Color invalid, should be 6-character hexadecimal");
+        }
+        let r: u8 = u8::from_str_radix(&color.color_name[0..2], 16)
+            .context("Color invalid, should be 6-character hexadecimal")?;
+        let g: u8 = u8::from_str_radix(&color.color_name[2..4], 16)
+            .context("Color invalid, should be 6-character hexadecimal")?;
+        let b: u8 = u8::from_str_radix(&color.color_name[4..6], 16)
+            .context("Color invalid, should be 6-character hexadecimal")?;
+        for client in self.clients.values_mut() {
+            if client.addr_string == color.ip {
+                client.current = RenderMode::Color(r, g, b);
+                client.current_animation_frame = 0;
+                client.millis_since_last_frame = 1000;
+                return Ok(());
+            }
+        }
+        bail!("Torch with ip {} not found", color.ip)
     }
 }

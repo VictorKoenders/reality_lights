@@ -14,6 +14,8 @@
     <code>0.bmp</code>, <code>1.bmp</code>, etc.</code><br />
     <code>GET /api/set_animation/{ip}/{animation_name}</code> Set the torch at
     IP <code>ip</code> to play animation <code>animation_name</code><br />
+    <code>GET /api/set_color/{ip}/{hex_color}</code> Set the torch at
+    IP <code>ip</code> to the given <code>hex_color</code> (e.g. <code>FF0000</code> for red)<br />
     <h3>Manual uploaded</h3>
     <form action="/api/animation" method="POST" enctype="multipart/form-data">
         Name: <input type="text" name="name_input" /><br />
