@@ -1,3 +1,4 @@
+use crate::artnet::RenderMode;
 use crate::Result;
 use actix::Message;
 use serde::Serialize;
@@ -19,7 +20,7 @@ pub struct Node {
     pub ip: String,
     pub short_name: String,
     pub long_name: String,
-    pub current_animation: String,
+    pub current: RenderMode,
 }
 
 #[derive(Debug)]

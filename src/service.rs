@@ -1,5 +1,5 @@
 use crate::animation_handler::AnimationHandler;
-use crate::artnet::{Client, Codec};
+use crate::artnet::{Client, Codec, RenderMode};
 use crate::config::Config;
 use crate::messages::{
     AddAnimation, RequestAnimationList, RequestNodeList, ResponseAnimationList, ResponseNodeList,
@@ -142,36 +142,57 @@ impl Service {
 
     fn render(&mut self, _: &mut Context<Self>) {
         for (addr, client) in &mut self.clients {
-            if let Some(animation) = self.animations.animations.get(&client.current_animation) {
-                client.millis_since_last_frame += 33;
-                let millis_per_frame = 1000 / usize::from(animation.fps);
-                if client.millis_since_last_frame >= millis_per_frame {
-                    client.millis_since_last_frame -= millis_per_frame;
-                } else {
-                    continue;
+            let (bytes, fps, frame_count): (Vec<u8>, u8, usize) = match &client.current {
+                RenderMode::Color(r, g, b) => (
+                    std::iter::repeat([r, g, b].iter())
+                        .take(7 * 22)
+                        .flatten()
+                        .map(|c| **c)
+                        .collect(),
+                    1,
+                    1,
+                ),
+                RenderMode::Animation(animation_name) => {
+                    match self.animations.animations.get(animation_name.as_str()) {
+                        Some(anim) => {
+                            let frame = anim.frames[client.current_animation_frame];
+                            let bytes = frame
+                                .iter()
+                                .flatten()
+                                .flat_map(|(r, g, b)| vec![r, g, b])
+                                .copied()
+                                .collect();
+                            (bytes, anim.fps, anim.frames.len())
+                        }
+                        None => {
+                            client.current_animation_frame = 0;
+                            continue;
+                        }
+                    }
                 }
-                let frame = animation.frames[client.current_animation_frame];
-
-                let bytes: [u8; 7 * 3 * 22] = unsafe { mem::transmute(frame) };
-
-                let message = Output {
-                    data: bytes[12..].to_vec(),
-                    length: 450,
-                    ..Output::default()
-                };
-                assert_eq!(message.length as usize, message.data.len());
-                if let Err(e) = self
-                    .udp_sender
-                    .try_send((ArtCommand::Output(message), *addr))
-                {
-                    println!("Can not send animation: {:?}", e);
-                    continue;
-                }
-                client.current_animation_frame =
-                    (client.current_animation_frame + 1) % animation.frames.len();
+            };
+            client.millis_since_last_frame += 33;
+            let millis_per_frame = 1000 / usize::from(fps);
+            if client.millis_since_last_frame >= millis_per_frame {
+                client.millis_since_last_frame -= millis_per_frame;
             } else {
-                client.current_animation_frame = 0;
+                continue;
             }
+            let message = Output {
+                data: bytes[12..].to_vec(),
+                length: 450,
+                ..Output::default()
+            };
+            assert_eq!(message.length as usize, message.data.len());
+            if let Err(e) = self
+                .udp_sender
+                .try_send((ArtCommand::Output(message), *addr))
+            {
+                println!("Can not send animation: {:?}", e);
+                client.current_animation_frame = 0;
+                continue;
+            }
+            client.current_animation_frame = (client.current_animation_frame + 1) % frame_count;
         }
     }
 }
@@ -252,7 +273,7 @@ impl Handler<SetNodeAnimation> for Service {
         }
         for client in self.clients.values_mut() {
             if client.addr_string == animation.ip {
-                client.current_animation = animation.animation_name;
+                client.current = RenderMode::Animation(animation.animation_name);
                 client.current_animation_frame = 0;
                 client.millis_since_last_frame = 1000;
                 return Ok(());

@@ -2,6 +2,7 @@ use crate::messages::Node;
 use crate::Result;
 use artnet_protocol::PollReply;
 use failure::ResultExt;
+use serde::Serialize;
 use std::net::SocketAddr;
 use std::str;
 
@@ -12,9 +13,15 @@ pub struct Client {
     pub last_reply_received: f64,
     pub short_name: String,
     pub long_name: String,
-    pub current_animation: String,
+    pub current: RenderMode,
     pub millis_since_last_frame: usize,
     pub current_animation_frame: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum RenderMode {
+    Color(u8, u8, u8),
+    Animation(String),
 }
 
 impl Client {
@@ -44,7 +51,7 @@ impl Client {
             short_name,
             long_name,
             last_reply_received: 0.,
-            current_animation: String::from("green"),
+            current: RenderMode::Color(0, 100, 0),
             millis_since_last_frame: 0,
             current_animation_frame: 0,
         })
@@ -55,7 +62,7 @@ impl Client {
             ip: self.addr_string.clone(),
             short_name: self.short_name.clone(),
             long_name: self.long_name.clone(),
-            current_animation: self.current_animation.clone(),
+            current: self.current.clone(),
         }
     }
 }
